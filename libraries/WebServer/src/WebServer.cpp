@@ -22,6 +22,7 @@
 
 
 #include <Arduino.h>
+#include <esp32-hal-log.h>
 #include <libb64/cencode.h>
 #include "WiFiServer.h"
 #include "WiFiClient.h"
@@ -30,12 +31,6 @@
 #include "detail/RequestHandlersImpl.h"
 #include "mbedtls/md5.h"
 
-//#define DEBUG_ESP_HTTP_SERVER
-#ifdef DEBUG_ESP_PORT
-#define DEBUG_OUTPUT DEBUG_ESP_PORT
-#else
-#define DEBUG_OUTPUT Serial
-#endif
 
 static const char AUTHORIZATION_HEADER[] = "Authorization";
 static const char qop_auth[] = "qop=auth";
@@ -44,7 +39,8 @@ static const char Content_Length[] = "Content-Length";
 
 
 WebServer::WebServer(IPAddress addr, int port)
-: _server(addr, port)
+: _corsEnabled(false)
+, _server(addr, port)
 , _currentMethod(HTTP_ANY)
 , _currentVersion(0)
 , _currentStatus(HC_NONE)
@@ -64,7 +60,8 @@ WebServer::WebServer(IPAddress addr, int port)
 }
 
 WebServer::WebServer(int port)
-: _server(port)
+: _corsEnabled(false)
+, _server(port)
 , _currentMethod(HTTP_ANY)
 , _currentVersion(0)
 , _currentStatus(HC_NONE)
@@ -109,7 +106,7 @@ void WebServer::begin(uint16_t port) {
 
 String WebServer::_extractParam(String& authReq,const String& param,const char delimit){
   int _begin = authReq.indexOf(param);
-  if (_begin == -1) 
+  if (_begin == -1)
     return "";
   return authReq.substring(_begin+param.length(),authReq.indexOf(delimit,_begin+param.length()));
 }
@@ -163,9 +160,7 @@ bool WebServer::authenticate(const char * username, const char * password){
       delete[] encoded;
     } else if(authReq.startsWith(F("Digest"))) {
       authReq = authReq.substring(7);
-      #ifdef DEBUG_ESP_HTTP_SERVER
-      DEBUG_OUTPUT.println(authReq);
-      #endif
+      log_v("%s", authReq.c_str());
       String _username = _extractParam(authReq,F("username=\""));
       if(!_username.length() || _username != String(username)) {
         authReq = "";
@@ -193,9 +188,7 @@ bool WebServer::authenticate(const char * username, const char * password){
         _cnonce = _extractParam(authReq, F("cnonce=\""));
       }
       String _H1 = md5str(String(username) + ':' + _realm + ':' + String(password));
-      #ifdef DEBUG_ESP_HTTP_SERVER
-      DEBUG_OUTPUT.println("Hash of user:realm:pass=" + _H1);
-      #endif
+      log_v("Hash of user:realm:pass=%s", _H1.c_str());
       String _H2 = "";
       if(_currentMethod == HTTP_GET){
           _H2 = md5str(String(F("GET:")) + _uri);
@@ -208,18 +201,14 @@ bool WebServer::authenticate(const char * username, const char * password){
       }else{
           _H2 = md5str(String(F("GET:")) + _uri);
       }
-      #ifdef DEBUG_ESP_HTTP_SERVER
-      DEBUG_OUTPUT.println("Hash of GET:uri=" + _H2);
-      #endif
+      log_v("Hash of GET:uri=%s", _H2.c_str());
       String _responsecheck = "";
       if(authReq.indexOf(FPSTR(qop_auth)) != -1) {
           _responsecheck = md5str(_H1 + ':' + _nonce + ':' + _nc + ':' + _cnonce + F(":auth:") + _H2);
       } else {
           _responsecheck = md5str(_H1 + ':' + _nonce + ':' + _H2);
       }
-      #ifdef DEBUG_ESP_HTTP_SERVER
-      DEBUG_OUTPUT.println("The Proper response=" +_responsecheck);
-      #endif
+      log_v("The Proper response=%s", _responsecheck.c_str());
       if(_response == _responsecheck){
         authReq = "";
         return true;
@@ -294,9 +283,7 @@ void WebServer::handleClient() {
       return;
     }
 
-#ifdef DEBUG_ESP_HTTP_SERVER
-    DEBUG_OUTPUT.println("New client");
-#endif
+    log_v("New client");
 
     _currentClient = client;
     _currentStatus = HC_WAIT_READ;
@@ -381,6 +368,14 @@ void WebServer::setContentLength(const size_t contentLength) {
     _contentLength = contentLength;
 }
 
+void WebServer::enableCORS(boolean value) {
+  _corsEnabled = value;
+}
+
+void WebServer::enableCrossOrigin(boolean value) {
+  enableCORS(value);
+}
+
 void WebServer::_prepareHeader(String& response, int code, const char* content_type, size_t contentLength) {
     response = String(F("HTTP/1.")) + String(_currentVersion) + ' ';
     response += String(code);
@@ -402,6 +397,9 @@ void WebServer::_prepareHeader(String& response, int code, const char* content_t
       _chunked = true;
       sendHeader(String(F("Accept-Ranges")),String(F("none")));
       sendHeader(String(F("Transfer-Encoding")),String(F("chunked")));
+    }
+    if (_corsEnabled) {
+        sendHeader(String(FPSTR("Access-Control-Allow-Origin")), String("*"));
     }
     sendHeader(String(F("Connection")), String(F("close")));
 
@@ -509,7 +507,7 @@ void WebServer::_streamFileCore(const size_t fileSize, const String & fileName, 
   send(200, contentType, "");
 }
 
-String WebServer::pathArg(unsigned int i) { 
+String WebServer::pathArg(unsigned int i) {
   if (_currentHandler != nullptr)
     return _currentHandler->pathArg(i);
   return "";
@@ -614,17 +612,13 @@ void WebServer::onNotFound(THandlerFunction fn) {
 void WebServer::_handleRequest() {
   bool handled = false;
   if (!_currentHandler){
-#ifdef DEBUG_ESP_HTTP_SERVER
-    DEBUG_OUTPUT.println("request handler not found");
-#endif
+    log_e("request handler not found");
   }
   else {
     handled = _currentHandler->handle(*this, _currentMethod, _currentUri);
-#ifdef DEBUG_ESP_HTTP_SERVER
     if (!handled) {
-      DEBUG_OUTPUT.println("request handler failed to handle request");
+      log_e("request handler failed to handle request");
     }
-#endif
   }
   if (!handled && _notFoundHandler) {
     _notFoundHandler();

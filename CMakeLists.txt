@@ -3,6 +3,7 @@ set(CORE_SRCS
   cores/esp32/cbuf.cpp
   cores/esp32/esp32-hal-adc.c
   cores/esp32/esp32-hal-bt.c
+  cores/esp32/esp32-hal-cpu.c
   cores/esp32/esp32-hal-dac.c
   cores/esp32/esp32-hal-gpio.c
   cores/esp32/esp32-hal-i2c.c
@@ -24,6 +25,7 @@ set(CORE_SRCS
   cores/esp32/IPv6Address.cpp
   cores/esp32/libb64/cdecode.c
   cores/esp32/libb64/cencode.c
+  cores/esp32/main.cpp
   cores/esp32/MD5Builder.cpp
   cores/esp32/Print.cpp
   cores/esp32/stdlib_noniso.c
@@ -40,7 +42,7 @@ set(LIBRARY_SRCS
   libraries/AsyncUDP/src/AsyncUDP.cpp
   libraries/BluetoothSerial/src/BluetoothSerial.cpp
   libraries/DNSServer/src/DNSServer.cpp
-  libraries/EEPROM/EEPROM.cpp
+  libraries/EEPROM/src/EEPROM.cpp
   libraries/ESPmDNS/src/ESPmDNS.cpp
   libraries/FFat/src/FFat.cpp
   libraries/FS/src/FS.cpp
@@ -149,6 +151,8 @@ set(BLE_SRCS
   libraries/BLE/src/BLEDescriptor.cpp
   libraries/BLE/src/BLEDescriptorMap.cpp
   libraries/BLE/src/BLEDevice.cpp
+  libraries/BLE/src/BLEEddystoneTLM.cpp
+  libraries/BLE/src/BLEEddystoneURL.cpp
   libraries/BLE/src/BLEExceptions.cpp
   libraries/BLE/src/BLEHIDDevice.cpp
   libraries/BLE/src/BLERemoteCharacteristic.cpp
@@ -177,6 +181,7 @@ set(COMPONENT_ADD_INCLUDEDIRS
   libraries/BLE/src
   libraries/BluetoothSerial/src
   libraries/DNSServer/src
+  libraries/EEPROM/src
   libraries/ESP32/src
   libraries/ESPmDNS/src
   libraries/FFat/src
@@ -201,6 +206,6 @@ set(COMPONENT_ADD_INCLUDEDIRS
 set(COMPONENT_PRIV_INCLUDEDIRS cores/esp32/libb64)
 
 set(COMPONENT_REQUIRES spi_flash mbedtls mdns ethernet)
-set(COMPONENT_PRIV_REQUIRES fatfs nvs_flash app_update spiffs bootloader_support openssl)
+set(COMPONENT_PRIV_REQUIRES fatfs nvs_flash app_update spiffs bootloader_support openssl bt)
 
 register_component()

@@ -39,6 +39,8 @@ WiFiClientSecure::WiFiClientSecure()
     _CA_cert = NULL;
     _cert = NULL;
     _private_key = NULL;
+    _pskIdent = NULL;
+    _psKey = NULL;
     next = NULL;
 }
 
@@ -46,6 +48,7 @@ WiFiClientSecure::WiFiClientSecure()
 WiFiClientSecure::WiFiClientSecure(int sock)
 {
     _connected = false;
+    _timeout = 0;
 
     sslclient = new sslclient_context;
     ssl_init(sslclient);
@@ -59,6 +62,8 @@ WiFiClientSecure::WiFiClientSecure(int sock)
     _CA_cert = NULL;
     _cert = NULL;
     _private_key = NULL;
+    _pskIdent = NULL;
+    _psKey = NULL;
     next = NULL;
 }
 
@@ -89,12 +94,26 @@ void WiFiClientSecure::stop()
 
 int WiFiClientSecure::connect(IPAddress ip, uint16_t port)
 {
+    if (_pskIdent && _psKey)
+        return connect(ip, port, _pskIdent, _psKey);
     return connect(ip, port, _CA_cert, _cert, _private_key);
+}
+
+int WiFiClientSecure::connect(IPAddress ip, uint16_t port, int32_t timeout){
+    _timeout = timeout;
+    return connect(ip, port);
 }
 
 int WiFiClientSecure::connect(const char *host, uint16_t port)
 {
+    if (_pskIdent && _psKey)
+        return connect(host, port, _pskIdent, _psKey);
     return connect(host, port, _CA_cert, _cert, _private_key);
+}
+
+int WiFiClientSecure::connect(const char *host, uint16_t port, int32_t timeout){
+    _timeout = timeout;
+    return connect(host, port);
 }
 
 int WiFiClientSecure::connect(IPAddress ip, uint16_t port, const char *_CA_cert, const char *_cert, const char *_private_key)
@@ -104,7 +123,30 @@ int WiFiClientSecure::connect(IPAddress ip, uint16_t port, const char *_CA_cert,
 
 int WiFiClientSecure::connect(const char *host, uint16_t port, const char *_CA_cert, const char *_cert, const char *_private_key)
 {
-    int ret = start_ssl_client(sslclient, host, port, _CA_cert, _cert, _private_key);
+    if(_timeout > 0){
+        sslclient->handshake_timeout = _timeout;
+    }
+    int ret = start_ssl_client(sslclient, host, port, _timeout, _CA_cert, _cert, _private_key, NULL, NULL);
+    _lastError = ret;
+    if (ret < 0) {
+        log_e("start_ssl_client: %d", ret);
+        stop();
+        return 0;
+    }
+    _connected = true;
+    return 1;
+}
+
+int WiFiClientSecure::connect(IPAddress ip, uint16_t port, const char *pskIdent, const char *psKey) {
+    return connect(ip.toString().c_str(), port,_pskIdent, _psKey);
+}
+
+int WiFiClientSecure::connect(const char *host, uint16_t port, const char *pskIdent, const char *psKey) {
+    log_v("start_ssl_client with PSK");
+    if(_timeout > 0){
+        sslclient->handshake_timeout = _timeout;
+    }
+    int ret = start_ssl_client(sslclient, host, port, _timeout, NULL, NULL, NULL, _pskIdent, _psKey);
     _lastError = ret;
     if (ret < 0) {
         log_e("start_ssl_client: %d", ret);
@@ -131,13 +173,6 @@ size_t WiFiClientSecure::write(uint8_t data)
 int WiFiClientSecure::read()
 {
     uint8_t data = -1;
-
-    if(_peek >= 0){
-        data = _peek;
-        _peek = -1;
-        return data;
-    }
-
     int res = read(&data, 1);
     if (res < 0) {
         return res;
@@ -161,7 +196,8 @@ size_t WiFiClientSecure::write(const uint8_t *buf, size_t size)
 int WiFiClientSecure::read(uint8_t *buf, size_t size)
 {
     int peeked = 0;
-    if ((!buf && size) || (_peek < 0 && !available())) {
+    int avail = available();
+    if ((!buf && size) || avail <= 0) {
         return -1;
     }
     if(!size){
@@ -171,7 +207,8 @@ int WiFiClientSecure::read(uint8_t *buf, size_t size)
         buf[0] = _peek;
         _peek = -1;
         size--;
-        if(!size || !available()){
+        avail--;
+        if(!size || !avail){
             return 1;
         }
         buf++;
@@ -181,23 +218,23 @@ int WiFiClientSecure::read(uint8_t *buf, size_t size)
     int res = get_ssl_receive(sslclient, buf, size);
     if (res < 0) {
         stop();
-        return res;
+        return peeked?peeked:res;
     }
     return res + peeked;
 }
 
 int WiFiClientSecure::available()
 {
+    int peeked = (_peek >= 0);
     if (!_connected) {
-        return 0;
+        return peeked;
     }
     int res = data_to_read(sslclient);
-    if (res < 0 ) {
+    if (res < 0) {
         stop();
-    } else if(_peek >= 0) {
-        res += 1;
+        return peeked?peeked:res;
     }
-    return res;
+    return res+peeked;
 }
 
 uint8_t WiFiClientSecure::connected()
@@ -223,6 +260,11 @@ void WiFiClientSecure::setPrivateKey (const char *private_key)
     _private_key = private_key;
 }
 
+void WiFiClientSecure::setPreSharedKey(const char *pskIdent, const char *psKey) {
+    _pskIdent = pskIdent;
+    _psKey = psKey;
+}
+
 bool WiFiClientSecure::verify(const char* fp, const char* domain_name)
 {
     if (!sslclient)
@@ -232,18 +274,19 @@ bool WiFiClientSecure::verify(const char* fp, const char* domain_name)
 }
 
 char *WiFiClientSecure::_streamLoad(Stream& stream, size_t size) {
-  char *dest = (char*)malloc(size);
+  static char *dest = nullptr;
+  if(dest) {
+      free(dest);
+  }
+  dest = (char*)malloc(size);
   if (!dest) {
     return nullptr;
   }
   if (size != stream.readBytes(dest, size)) {
     free(dest);
-    return nullptr;
+    dest = nullptr;
   }
-  char ret[size+1];
-  snprintf(ret, size, "%s", dest);
-  free(dest);
-  return ret;
+  return dest;
 }
 
 bool WiFiClientSecure::loadCACert(Stream& stream, size_t size) {

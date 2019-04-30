@@ -16,9 +16,11 @@
 #define LORA_MISO 19    // GPIO19 - SX1276 MISO
 #define LORA_MOSI 27    // GPIO27 - SX1276 MOSI
 #define LORA_CS 18      // GPIO18 - SX1276 CS
-#define LORA_IO0 23     // GPIO23 - SX1276 IO0
-#define LORA_IO1 23     // GPIO23 - SX1276 IO1 tied by diode to IO0
-#define LORA_IO2 23     // GPIO23 - SX1276 IO2 tied by diode to IO0
+#define LORA_IRQ 23     // GPIO23 - SX1276 IO0
+#define LORA_IO0 LORA_IRQ  // alias
+#define LORA_IO1 LORA_IRQ   // tied by diode to IO0
+#define LORA_IO2 LORA_IRQ   // tied by diode to IO0
+#define LORA_RST NOT_A_PIN
 
 static const uint8_t LED_BUILTIN = 0; // ->2812 RGB !!!
 #define BUILTIN_LED  LED_BUILTIN // backward compatibility
@@ -31,6 +33,7 @@ static const uint8_t RX = 3;
 static const uint8_t SDA = 12;
 static const uint8_t SCL = 13;
  
+static const uint8_t SS    = 18;
 static const uint8_t MOSI  = 22;
 static const uint8_t MISO  = 37;
 static const uint8_t SCK   = 13;
@@ -48,7 +51,7 @@ static const uint8_t A11 = 0;
 static const uint8_t A12 = 2;
 static const uint8_t A13 = 15;
 static const uint8_t A14 = 13;
-static const uint8_t A14 = 12;
+static const uint8_t A15 = 12;
 static const uint8_t A16 = 14;
 static const uint8_t A17 = 27;
 static const uint8_t A18 = 25;
